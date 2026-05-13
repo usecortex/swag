@@ -1885,7 +1885,7 @@ func TestParseExtensionsV3(t *testing.T) {
 			"passthroughBehavior": "when_no_match",
 			"type":                "aws_proxy",
 			"uri":                 "${some_arn}",
-		}, operation.Responses.Extensions["x-amazon-apigateway-integration"])
+		}, operation.OperationExtensions["x-amazon-apigateway-integration"])
 	}
 
 	// Test x-tagGroups
@@ -1903,7 +1903,7 @@ func TestParseExtensionsV3(t *testing.T) {
 					"PersonRisk",
 					"PersonDocuments",
 				},
-			}}, operation.Responses.Extensions["x-tagGroups"])
+			}}, operation.OperationExtensions["x-tagGroups"])
 	}
 }
 
@@ -1931,7 +1931,7 @@ func TestParseCodeSamplesV3(t *testing.T) {
 
 		assert.Equal(t, "example", operation.Summary)
 		assert.Equal(t, CodeSamples(CodeSamples{map[string]string{"lang": "JavaScript", "source": "console.log('Hello World');"}}),
-			operation.Responses.Extensions["x-codeSamples"],
+			operation.OperationExtensions["x-codeSamples"],
 		)
 	})
 
@@ -2409,4 +2409,47 @@ func TestProcessDiscriminatorCommentAppliedToRequestBodyV3(t *testing.T) {
 	schema := operation.RequestBody.Spec.Spec.Content["application/json"].Spec.Schema
 	require.NotNil(t, schema.Spec.Discriminator)
 	assert.Equal(t, "body_type", schema.Spec.Discriminator.PropertyName)
+}
+
+func TestOperationExtensionsAtOperationLevelV3(t *testing.T) {
+	t.Parallel()
+
+	p := New(GenerateOpenAPI3Doc(true))
+
+	fset := token.NewFileSet()
+	f, err := goparser.ParseFile(fset, "testdata/v3/extension/extension.go", nil, goparser.ParseComments)
+	require.NoError(t, err)
+
+	err = p.ParseRouterAPIInfoV3(&AstFileInfo{
+		File:      f,
+		Path:      "testdata/v3/extension/extension.go",
+		ParseFlag: ParseAll,
+	})
+	require.NoError(t, err)
+
+	pathItem, ok := p.openAPI.Paths.Spec.Paths["/items"]
+	require.True(t, ok, "expected /items path to exist")
+	require.NotNil(t, pathItem.Spec.Spec.Get, "expected GET operation")
+
+	// Extension should be at the operation level (Extendable wrapper), not inside responses
+	assert.Equal(t, map[string]interface{}{"key": "value"}, pathItem.Spec.Spec.Get.Extensions["x-custom-ext"])
+
+	// Verify it's NOT on the responses
+	if pathItem.Spec.Spec.Get.Spec != nil && pathItem.Spec.Spec.Get.Spec.Responses != nil {
+		assert.Empty(t, pathItem.Spec.Spec.Get.Spec.Responses.Extensions, "extensions should not be inside responses")
+	}
+}
+
+func TestCodeSampleExtensionsAtOperationLevelV3(t *testing.T) {
+	t.Parallel()
+
+	operation := NewOperationV3(New(), SetCodeExampleFilesDirectoryV3("testdata/code_examples"))
+	operation.Summary = "example"
+
+	err := operation.ParseComment("@x-codeSamples file", nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, CodeSamples(CodeSamples{map[string]string{"lang": "JavaScript", "source": "console.log('Hello World');"}}),
+		operation.OperationExtensions["x-codeSamples"],
+	)
 }

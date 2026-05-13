@@ -25,9 +25,10 @@ type OperationV3 struct {
 	parser              *Parser
 	codeExampleFilesDir string
 	spec.Operation
-	RouterProperties  []RouteProperties
-	responseMimeTypes []string
-	discriminatorInfo *parsedDiscriminator
+	OperationExtensions map[string]any // operation-level x-* extensions
+	RouterProperties    []RouteProperties
+	responseMimeTypes   []string
+	discriminatorInfo   *parsedDiscriminator
 }
 
 // NewOperationV3 returns a new instance of OperationV3.
@@ -36,8 +37,9 @@ func NewOperationV3(parser *Parser, options ...func(*OperationV3)) *OperationV3 
 	op.Responses = spec.NewResponses()
 
 	operation := &OperationV3{
-		parser:    parser,
-		Operation: op,
+		parser:              parser,
+		Operation:           op,
+		OperationExtensions: make(map[string]any),
 	}
 
 	for _, option := range options {
@@ -141,7 +143,7 @@ func (o *OperationV3) ParseMetadata(attribute, lowerAttribute, lineRemainder str
 			return fmt.Errorf("annotation %s need a valid json value. error: %s", attribute, err.Error())
 		}
 
-		o.Responses.Extensions[attribute[1:]] = valueJSON
+		o.OperationExtensions[attribute[1:]] = valueJSON
 		return nil
 	}
 
@@ -1295,7 +1297,7 @@ func (o *OperationV3) ParseCodeSample(attribute, _, lineRemainder string) error 
 			}
 		}
 
-		o.Responses.Extensions[attribute[1:]] = valueJSON
+		o.OperationExtensions[attribute[1:]] = valueJSON
 
 		return nil
 	}
