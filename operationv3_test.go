@@ -1233,7 +1233,20 @@ func TestParseParamCommentByFormDataTypeV3(t *testing.T) {
 
 	requestBodySpec := requestBody.Spec.Spec
 	assert.NotNil(t, requestBodySpec)
-	assert.Equal(t, &typeFile, requestBodySpec.Content["application/x-www-form-urlencoded"].Spec.Schema.Spec.Type)
+
+	// File param should use multipart/form-data, not application/x-www-form-urlencoded
+	mp := requestBodySpec.Content["multipart/form-data"]
+	assert.NotNil(t, mp)
+	_, hasUrlEncoded := requestBodySpec.Content["application/x-www-form-urlencoded"]
+	assert.False(t, hasUrlEncoded)
+
+	// Schema should be an object with a "file" property
+	schema := mp.Spec.Schema.Spec
+	assert.NotNil(t, schema.Properties)
+	fileProp := schema.Properties["file"]
+	assert.NotNil(t, fileProp)
+	assert.Equal(t, &typeString, fileProp.Spec.Type)
+	assert.Equal(t, "binary", fileProp.Spec.Format)
 }
 
 func TestParseParamCommentByFormDataTypeUint64V3(t *testing.T) {
@@ -1251,9 +1264,16 @@ func TestParseParamCommentByFormDataTypeUint64V3(t *testing.T) {
 	assert.NotNil(t, requestBody)
 	assert.Equal(t, "this is a test file", requestBody.Spec.Spec.Description)
 
-	requestBodySpec := requestBody.Spec.Spec.Content["application/x-www-form-urlencoded"].Spec
-	assert.NotNil(t, requestBodySpec)
-	assert.Equal(t, &typeInteger, requestBodySpec.Schema.Spec.Type)
+	// Non-file formData should use application/x-www-form-urlencoded
+	urlEncoded := requestBody.Spec.Spec.Content["application/x-www-form-urlencoded"]
+	assert.NotNil(t, urlEncoded)
+
+	// Schema should be an object with a "file" property of type integer
+	schema := urlEncoded.Spec.Schema.Spec
+	assert.NotNil(t, schema.Properties)
+	fileProp := schema.Properties["file"]
+	assert.NotNil(t, fileProp)
+	assert.Equal(t, &typeInteger, fileProp.Spec.Type)
 }
 
 func TestParseParamCommentByNotSupportedTypeV3(t *testing.T) {
@@ -2452,4 +2472,147 @@ func TestCodeSampleExtensionsAtOperationLevelV3(t *testing.T) {
 	assert.Equal(t, CodeSamples(CodeSamples{map[string]string{"lang": "JavaScript", "source": "console.log('Hello World');"}}),
 		operation.OperationExtensions["x-codeSamples"],
 	)
+}
+
+func TestParseMultipleFormDataParamsWithAcceptMultipartV3(t *testing.T) {
+	t.Parallel()
+	operation := NewOperationV3(New())
+
+	// Parse @Accept first, then multiple formData params
+	assert.NoError(t, operation.ParseComment(`@Accept multipart/form-data`, nil))
+	assert.NoError(t, operation.ParseComment(`@Param file formData file true "upload file"`, nil))
+	assert.NoError(t, operation.ParseComment(`@Param name formData string true "file name"`, nil))
+	assert.NoError(t, operation.ParseComment(`@Param tenant_id formData string true "tenant"`, nil))
+
+	rb := operation.RequestBody.Spec.Spec
+	assert.True(t, rb.Required)
+
+	// Should use multipart/form-data
+	mp := rb.Content["multipart/form-data"]
+	assert.NotNil(t, mp)
+
+	// Should NOT have x-www-form-urlencoded
+	_, hasUrlEncoded := rb.Content["application/x-www-form-urlencoded"]
+	assert.False(t, hasUrlEncoded)
+
+	// Should have 3 properties
+	schema := mp.Spec.Schema.Spec
+	assert.Equal(t, 3, len(schema.Properties))
+
+	// file property: type string, format binary
+	fileProp := schema.Properties["file"]
+	assert.NotNil(t, fileProp)
+	assert.Equal(t, &spec.SingleOrArray[string]{"string"}, fileProp.Spec.Type)
+	assert.Equal(t, "binary", fileProp.Spec.Format)
+
+	// name property: type string
+	nameProp := schema.Properties["name"]
+	assert.NotNil(t, nameProp)
+	assert.Equal(t, &spec.SingleOrArray[string]{"string"}, nameProp.Spec.Type)
+
+	// tenant_id property: type string
+	tidProp := schema.Properties["tenant_id"]
+	assert.NotNil(t, tidProp)
+
+	// Required array should have all three
+	assert.Contains(t, schema.Required, "file")
+	assert.Contains(t, schema.Required, "name")
+	assert.Contains(t, schema.Required, "tenant_id")
+}
+
+func TestFormDataFileWithoutAcceptV3(t *testing.T) {
+	t.Parallel()
+	operation := NewOperationV3(New())
+
+	// Parse file formData param WITHOUT @Accept
+	assert.NoError(t, operation.ParseComment(`@Param file formData file true "a file"`, nil))
+
+	rb := operation.RequestBody.Spec.Spec
+
+	// File forces multipart/form-data
+	mp := rb.Content["multipart/form-data"]
+	assert.NotNil(t, mp)
+
+	// Should NOT have x-www-form-urlencoded
+	_, hasUrlEncoded := rb.Content["application/x-www-form-urlencoded"]
+	assert.False(t, hasUrlEncoded)
+
+	// file property: type string, format binary
+	fileProp := mp.Spec.Schema.Spec.Properties["file"]
+	assert.NotNil(t, fileProp)
+	assert.Equal(t, &spec.SingleOrArray[string]{"string"}, fileProp.Spec.Type)
+	assert.Equal(t, "binary", fileProp.Spec.Format)
+}
+
+func TestFormDataStringWithoutAcceptV3(t *testing.T) {
+	t.Parallel()
+	operation := NewOperationV3(New())
+
+	// Parse string formData param WITHOUT @Accept
+	assert.NoError(t, operation.ParseComment(`@Param name formData string true "a name"`, nil))
+
+	rb := operation.RequestBody.Spec.Spec
+
+	// Non-file preserves application/x-www-form-urlencoded
+	urlEncoded := rb.Content["application/x-www-form-urlencoded"]
+	assert.NotNil(t, urlEncoded)
+
+	// Should NOT have multipart/form-data
+	_, hasMultipart := rb.Content["multipart/form-data"]
+	assert.False(t, hasMultipart)
+
+	// The field is a property on an object schema
+	schema := urlEncoded.Spec.Schema.Spec
+	assert.NotNil(t, schema.Properties)
+	nameProp := schema.Properties["name"]
+	assert.NotNil(t, nameProp)
+	assert.Equal(t, &spec.SingleOrArray[string]{"string"}, nameProp.Spec.Type)
+}
+
+func TestFormDataExplicitUrlEncodedAcceptV3(t *testing.T) {
+	t.Parallel()
+	operation := NewOperationV3(New())
+
+	// Parse @Accept application/x-www-form-urlencoded, then a formData param
+	assert.NoError(t, operation.ParseComment(`@Accept application/x-www-form-urlencoded`, nil))
+	assert.NoError(t, operation.ParseComment(`@Param name formData string true "name"`, nil))
+
+	rb := operation.RequestBody.Spec.Spec
+
+	// application/x-www-form-urlencoded should exist with object schema containing property "name"
+	urlEncoded := rb.Content["application/x-www-form-urlencoded"]
+	assert.NotNil(t, urlEncoded)
+
+	schema := urlEncoded.Spec.Schema.Spec
+	assert.NotNil(t, schema.Properties)
+	nameProp := schema.Properties["name"]
+	assert.NotNil(t, nameProp)
+	assert.Equal(t, &spec.SingleOrArray[string]{"string"}, nameProp.Spec.Type)
+
+	// multipart/form-data should NOT exist
+	_, hasMultipart := rb.Content["multipart/form-data"]
+	assert.False(t, hasMultipart)
+}
+
+func TestFormDataMixedRequiredOptionalV3(t *testing.T) {
+	t.Parallel()
+	operation := NewOperationV3(New())
+
+	assert.NoError(t, operation.ParseComment(`@Param tenant_id formData string true "tenant"`, nil))
+	assert.NoError(t, operation.ParseComment(`@Param notes formData string false "optional notes"`, nil))
+
+	rb := operation.RequestBody.Spec.Spec
+
+	// RequestBody.Required should be true (OR logic: true || false = true)
+	assert.True(t, rb.Required)
+
+	// Get the schema from url-encoded content (no file, no @Accept multipart)
+	urlEncoded := rb.Content["application/x-www-form-urlencoded"]
+	assert.NotNil(t, urlEncoded)
+
+	schema := urlEncoded.Spec.Schema.Spec
+
+	// Schema-level Required array should contain only "tenant_id"
+	assert.Contains(t, schema.Required, "tenant_id")
+	assert.NotContains(t, schema.Required, "notes")
 }
