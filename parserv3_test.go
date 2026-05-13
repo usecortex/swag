@@ -137,7 +137,7 @@ func TestParserParseGeneralApiInfoV3(t *testing.T) {
 	assert.Equal(t, "OpenAPI", p.openAPI.ExternalDocs.Spec.Description)
 	assert.Equal(t, "https://swagger.io/resources/open-api", p.openAPI.ExternalDocs.Spec.URL)
 
-	assert.Equal(t, 8, len(p.openAPI.Components.Spec.SecuritySchemes))
+	assert.Equal(t, 9, len(p.openAPI.Components.Spec.SecuritySchemes))
 
 	security := p.openAPI.Components.Spec.SecuritySchemes
 	if v, ok := security["basic"]; ok && v != nil && v.Spec != nil && v.Spec.Spec != nil {
@@ -149,6 +149,12 @@ func TestParserParseGeneralApiInfoV3(t *testing.T) {
 		assert.Equal(t, "Authorization", v.Spec.Spec.Name)
 		assert.Equal(t, "header", v.Spec.Spec.In)
 		assert.Equal(t, "some description", v.Spec.Spec.Description)
+	}
+	if v, ok := security["ApiKeyAuth2"]; ok && v != nil && v.Spec != nil && v.Spec.Spec != nil {
+		assert.Equal(t, "apiKey", v.Spec.Spec.Type)
+		assert.Equal(t, "X-API-Key", v.Spec.Spec.Name)
+		assert.Equal(t, "header", v.Spec.Spec.In)
+		assert.Equal(t, "secondary API key", v.Spec.Spec.Description)
 	}
 	if v, ok := security["OAuth2Application"]; ok && v != nil && v.Spec != nil && v.Spec.Spec != nil {
 		assert.Equal(t, "oauth2", v.Spec.Spec.Type)
@@ -184,6 +190,60 @@ func TestParserParseGeneralApiInfoV3(t *testing.T) {
 		assert.Equal(t, "CustomToken", v.Spec.Spec.BearerFormat)
 		assert.Equal(t, "Second bearer token", v.Spec.Spec.Description)
 	}
+}
+
+func TestParseMultipleSecurityDefinitionsSameBlock(t *testing.T) {
+	t.Parallel()
+
+	p := New(GenerateOpenAPI3Doc(true))
+
+	comments := []string{
+		"@securityDefinitions.apikey BearerAuth",
+		"@in header",
+		"@name Authorization",
+		"@description Bearer token auth",
+		"@securityDefinitions.apikey NextAuth",
+		"@in header",
+		"@name Authorization",
+		"@description NextAuth JWT session token",
+	}
+
+	err := p.parseGeneralAPIInfoV3(comments)
+	assert.NoError(t, err)
+
+	security := p.openAPI.Components.Spec.SecuritySchemes
+	assert.Equal(t, 2, len(security))
+
+	if v, ok := security["BearerAuth"]; ok && v != nil && v.Spec != nil && v.Spec.Spec != nil {
+		assert.Equal(t, "apiKey", v.Spec.Spec.Type)
+		assert.Equal(t, "header", v.Spec.Spec.In)
+		assert.Equal(t, "Authorization", v.Spec.Spec.Name)
+		assert.Equal(t, "Bearer token auth", v.Spec.Spec.Description)
+	} else {
+		t.Error("BearerAuth security scheme not found or nil")
+	}
+
+	if v, ok := security["NextAuth"]; ok && v != nil && v.Spec != nil && v.Spec.Spec != nil {
+		assert.Equal(t, "apiKey", v.Spec.Spec.Type)
+		assert.Equal(t, "header", v.Spec.Spec.In)
+		assert.Equal(t, "Authorization", v.Spec.Spec.Name)
+		assert.Equal(t, "NextAuth JWT session token", v.Spec.Spec.Description)
+	} else {
+		t.Error("NextAuth security scheme not found or nil")
+	}
+}
+
+func TestMalformedSecurityDefinitionLine(t *testing.T) {
+	t.Parallel()
+
+	p := New(GenerateOpenAPI3Doc(true))
+
+	comments := []string{
+		"@securityDefinitions.apikey",
+	}
+
+	err := p.parseGeneralAPIInfoV3(comments)
+	assert.Error(t, err)
 }
 
 func TestParser_ParseGeneralApiInfoExtensionsV3(t *testing.T) {

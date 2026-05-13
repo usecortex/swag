@@ -22,6 +22,10 @@ package main
 // @in header
 // @name Authorization
 // @description some description
+// @securityDefinitions.apikey ApiKeyAuth2
+// @in header
+// @name X-API-Key
+// @description secondary API key
 
 // @securitydefinitions.oauth2.application OAuth2Application
 // @tokenUrl https://example.com/oauth/token
