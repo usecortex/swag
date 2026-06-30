@@ -4,6 +4,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    target-branch: master
     labels: [dependencies, go]
     groups:
       go-dependencies:
@@ -14,6 +15,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    target-branch: master
     labels: [dependencies, docker]
     groups:
       docker-dependencies:
@@ -24,6 +26,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    target-branch: master
     labels: [dependencies, github-actions]
     groups:
       github-actions-dependencies:
